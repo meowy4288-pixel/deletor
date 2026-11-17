@@ -19,6 +19,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -33,7 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -87,6 +88,7 @@ import com.igviewer.cleaner.data.StorageRoots
 import com.igviewer.cleaner.data.displayPath
 import com.igviewer.cleaner.data.humanBytes
 import com.igviewer.cleaner.data.kindOf
+import com.igviewer.cleaner.data.sampleSizeFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -100,7 +102,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private object Palette {
+internal object Palette {
     val Bg = Color(0xFF0E0E10)
     val Surface = Color(0xFF18181C)
     val Line = Color(0xFF2C2C33)
@@ -147,6 +149,8 @@ private class CleanerState {
 
     var candidates by mutableStateOf<List<DeviceCopy>>(emptyList())
     var selected by mutableStateOf<Set<String>>(emptySet())
+    /** Index into [candidates] of the file open in the preview, or -1 for none. */
+    var previewAt by mutableIntStateOf(-1)
 
     var confirmDelete by mutableStateOf(false)
     var deleteDone by mutableIntStateOf(0)
@@ -178,6 +182,14 @@ private fun CleanerApp() {
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { hasAccess = hasStorageAccess(context) }
 
+    fun toggle(path: String) {
+        state.selected = if (path in state.selected) {
+            state.selected - path
+        } else {
+            state.selected + path
+        }
+    }
+
     fun requestAccess() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val intent = Intent(
@@ -208,6 +220,7 @@ private fun CleanerApp() {
         state.results = null
         state.candidates = emptyList()
         state.selected = emptySet()
+        state.previewAt = -1
         state.entryCount = 0
         state.phase = Phase.INDEXING
         state.zipName = displayName(context, uri)
@@ -247,6 +260,7 @@ private fun CleanerApp() {
             state.error = "No readable storage volume was found."
             return
         }
+        state.previewAt = -1
         state.scanRoots = roots
         state.scanningRoot = roots.firstOrNull()
         state.phase = Phase.SCANNING
@@ -304,6 +318,7 @@ private fun CleanerApp() {
             state.results = results
             state.candidates = state.candidates.filter { it.path !in removed }
             state.selected = state.selected - removed
+            state.previewAt = -1
             state.phase = Phase.REVIEW
         }
     }
@@ -313,6 +328,11 @@ private fun CleanerApp() {
     BackHandler(enabled = state.phase == Phase.SCANNING || state.phase == Phase.DELETING) {
         if (state.phase == Phase.SCANNING) state.cancelFlag.set(true)
     }
+
+    // Registered after the scan handler, so with a preview open Back closes the
+    // preview rather than cancelling anything.
+    val previewCopy = state.candidates.getOrNull(state.previewAt)
+    BackHandler(enabled = previewCopy != null) { state.previewAt = -1 }
 
     Scaffold(
         containerColor = Palette.Bg,
@@ -377,13 +397,8 @@ private fun CleanerApp() {
                     state = state,
                     hasAccess = hasAccess,
                     onGrant = { requestAccess() },
-                    onToggle = { path ->
-                        state.selected = if (path in state.selected) {
-                            state.selected - path
-                        } else {
-                            state.selected + path
-                        }
-                    },
+                    onToggle = { path -> toggle(path) },
+                    onPreview = { index -> state.previewAt = index },
                     onSelectAll = { state.selected = state.candidates.map { it.path }.toSet() },
                     onClear = { state.selected = emptySet() },
                     onRescan = { startScan() },
@@ -417,6 +432,27 @@ private fun CleanerApp() {
         DeleteResultDialog(
             results = results,
             onDismiss = { state.results = null },
+        )
+    }
+
+    if (previewCopy != null) {
+        PreviewOverlay(
+            copy = previewCopy,
+            position = "${state.previewAt + 1} of ${state.candidates.size}",
+            subtitle = rowPath(previewCopy),
+            checked = previewCopy.path in state.selected,
+            onToggle = { toggle(previewCopy.path) },
+            onClose = { state.previewAt = -1 },
+            onPrev = if (state.previewAt > 0) {
+                { state.previewAt -= 1 }
+            } else {
+                null
+            },
+            onNext = if (state.previewAt < state.candidates.lastIndex) {
+                { state.previewAt += 1 }
+            } else {
+                null
+            },
         )
     }
 }
@@ -587,6 +623,7 @@ private fun ReviewPane(
     hasAccess: Boolean,
     onGrant: () -> Unit,
     onToggle: (String) -> Unit,
+    onPreview: (Int) -> Unit,
     onSelectAll: () -> Unit,
     onClear: () -> Unit,
     onRescan: () -> Unit,
@@ -635,6 +672,13 @@ private fun ReviewPane(
                 fontSize = 12.sp,
             )
         }
+        if (state.candidates.isNotEmpty()) {
+            Text(
+                "Tap a thumbnail to view it full screen; tap the row to tick it.",
+                color = Palette.Muted,
+                fontSize = 11.sp,
+            )
+        }
         Spacer(Modifier.height(10.dp))
 
         if (!hasAccess) {
@@ -666,11 +710,12 @@ private fun ReviewPane(
             ) { Text("Scan again") }
         } else {
             LazyColumn(modifier = Modifier.weight(1f)) {
-                items(state.candidates, key = { it.path }) { copy ->
+                itemsIndexed(state.candidates, key = { _, copy -> copy.path }) { index, copy ->
                     CopyRow(
                         copy = copy,
                         checked = copy.path in state.selected,
                         onToggle = { onToggle(copy.path) },
+                        onPreview = { onPreview(index) },
                     )
                 }
             }
@@ -722,6 +767,7 @@ private fun CopyRow(
     copy: DeviceCopy,
     checked: Boolean,
     onToggle: () -> Unit,
+    onPreview: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -731,7 +777,7 @@ private fun CopyRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(checked = checked, onCheckedChange = { onToggle() })
-        Thumbnail(copy.path)
+        Thumbnail(copy.path, onPreview)
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -759,9 +805,13 @@ private fun CopyRow(
 /**
  * A small preview for images only. Decoded at the size it is shown at, so a
  * 4000px photo does not put a 48 MB bitmap in the row.
+ *
+ * The tile is its own tap target: tapping it opens the full-screen preview, while
+ * tapping anywhere else in the row ticks the file. The border is what makes that
+ * distinction visible in a dense list.
  */
 @Composable
-private fun Thumbnail(path: String) {
+private fun Thumbnail(path: String, onOpen: () -> Unit) {
     val kind = kindOf(path)
     // An extensionless photo (bare timestamp, as some exports produce) is kind OTHER,
     // so decoding is attempted for anything that is not clearly audio. A failed decode
@@ -772,9 +822,11 @@ private fun Thumbnail(path: String) {
     }
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(56.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(Palette.Surface),
+            .background(Palette.Surface)
+            .border(1.dp, Palette.Line, RoundedCornerShape(8.dp))
+            .clickable(onClick = onOpen),
         contentAlignment = Alignment.Center,
     ) {
         val image = bitmap
@@ -802,9 +854,7 @@ private fun Thumbnail(path: String) {
 private fun decodeThumb(path: String): Bitmap? = runCatching {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(path, bounds)
-    var sample = 1
-    val longest = maxOf(bounds.outWidth, bounds.outHeight)
-    while (longest / sample > 192) sample *= 2
+    val sample = sampleSizeFor(bounds.outWidth, bounds.outHeight, 192)
     BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
 }.getOrNull()
 

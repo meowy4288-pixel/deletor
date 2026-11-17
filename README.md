@@ -28,6 +28,25 @@ The archive is hashed the moment you pick it: entries are streamed out of the
 zip and hashed, nothing is extracted and nothing is written. The zip itself is
 never modified.
 
+## Reviewing what you are about to delete
+
+Each row shows a thumbnail, the file name, its folder, its size and the archive
+entry it equals. **Tap the thumbnail** to open the file full screen:
+
+| Kind | Preview |
+|---|---|
+| Photos, stickers, GIFs | decoded at up to 2048 px, scaled to fit |
+| Videos / reels | plays in place, looping; if the device has no decoder for it, a still frame is shown instead |
+| Voice notes / audio | play / pause |
+| Anything unrecognised | a clear "no preview for this file type" message |
+
+`‹` and `›` move through the found copies without closing the preview, and the
+preview has its own **Delete this copy** tick, so a decision can be made while
+looking at the file. Tapping the row itself (outside the thumbnail) still ticks
+it, which is the fast path for a folder of copies you already recognise. The
+preview decodes a downsampled bitmap and releases it when you move on, so a
+4000×3000 photo does not put a 48 MB bitmap on the heap.
+
 **Device files are never filtered by name or extension.** A copy whose own name
 lost its extension (`DCIM/Camera/384312553936495`) is found like any other; only
 its size and bytes matter. On the archive side, an entry with no extension at all
@@ -156,5 +175,7 @@ gitignored. Tests only ever use generated temporary files — never a real expor
 | `data/DeviceScan.kt` | Size-prefiltered walk of one volume; `scanAll` covers all volumes; archive names are skipped. |
 | `data/StorageRoots.kt` | Internal storage + mounted SD cards, as scan roots. |
 | `data/Deletions.kt` | Re-hash + containment, then delete one file. Refuses archives and symlinks. |
-| `data/Format.kt` | Byte counts and root-relative paths for the UI. |
+| `data/Format.kt` | Byte counts, durations and root-relative paths for the UI. |
+| `data/Sampling.kt` | Power-of-two bitmap downsampling, so a preview cannot exhaust the heap. |
 | `MainActivity.kt` | The single Compose screen and its state machine. |
+| `Preview.kt` | Full-screen preview: image / video / audio, and its decode helpers. |

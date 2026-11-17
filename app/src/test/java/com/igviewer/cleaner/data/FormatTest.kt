@@ -21,4 +21,20 @@ class FormatTest {
         // Outside the root it is shown unchanged rather than silently mangled.
         assertEquals("/mnt/sdcard/x.jpg", displayPath(root, "/mnt/sdcard/x.jpg"))
     }
+
+    @Test
+    fun durationsReadLikeAClock() {
+        assertEquals("0:07", humanDuration(7_400))
+        assertEquals("3:42", humanDuration(222_000))
+        assertEquals("1:02:09", humanDuration(3_729_000))
+        // Sub-second rounds down rather than showing a misleading 0:01.
+        assertEquals("0:00", humanDuration(999))
+    }
+
+    @Test
+    fun anUnknownDurationIsBlankRatherThanZero() {
+        // A video whose header did not carry a duration must not be labelled 0:00.
+        assertEquals("", humanDuration(0))
+        assertEquals("", humanDuration(-1))
+    }
 }
