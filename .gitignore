@@ -1,0 +1,19 @@
+# Gradle / Android build outputs
+.gradle/
+build/
+app/build/
+.kotlin/
+captures/
+.cxx/
+
+# Machine-specific
+local.properties
+.idea/
+*.iml
+
+# Keystores are never committed
+*.jks
+*.keystore
+
+# Test/scan leftovers
+*.hprof

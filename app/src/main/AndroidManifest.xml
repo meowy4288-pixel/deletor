@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- NO INTERNET. This app never opens a network connection: it reads a local
+         export .zip and deletes local files, nothing else.
+
+         MANAGE_EXTERNAL_STORAGE is the whole point of this tool: the user asks it to
+         find copies of archived media anywhere on shared storage. It is granted by
+         hand in system Settings (Android 11+), is never requested silently, and is
+         re-checked before every scan. On Android 10 and below the equivalent is
+         READ/WRITE_EXTERNAL_STORAGE, requested at runtime.
+
+         Deletion is confined to files the scan itself found under the shared-storage
+         root, re-hashed immediately before removal. The app never writes anywhere. -->
+    <!-- No INTERNET and no code path that opens a socket. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
+    <!-- Android 10 only: with scoped storage, File.delete() cannot remove another
+         app's media even with WRITE_EXTERNAL_STORAGE. The legacy model restores that
+         ability on API 29. Android 11+ ignores this attribute; there MANAGE_EXTERNAL_STORAGE
+         is what makes direct deletes legal. -->
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:requestLegacyExternalStorage="true"
+        android:theme="@style/Theme.ArchiveCleaner">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.ArchiveCleaner">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
