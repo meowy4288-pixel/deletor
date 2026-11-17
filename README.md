@@ -54,6 +54,24 @@ is classified by its leading bytes (JPEG, PNG, GIF, WebP, HEIC, MP4, WAV, …),
 because Instagram sometimes stores media under a bare timestamp — the viewer app
 documents the same case.
 
+## When the count looks too small
+
+The review screen states what the scan actually saw, so a short list explains
+itself instead of leaving you to guess:
+
+- how many photos, videos and voice notes were visible on the device, and their
+  total size;
+- which volumes were scanned (internal storage, and any SD card by name);
+- how many of those files have a **size the archive does not contain at all** —
+  no exact copy of them can exist in that `.zip`, whatever their contents;
+- how many share a size with an archive entry but differ in **content**, which
+  means re-compressed or otherwise different copies.
+
+Those two numbers separate the only three possible reasons for a small result:
+the zip holds fewer files than you expected (export requested with only some
+chats or categories), the device copies were re-encoded, or the scan could not
+see the volume the files are on. They are counts only — no paths and no content.
+
 ## What is covered
 
 Archive entries are indexed when their name ends in a recognised extension:

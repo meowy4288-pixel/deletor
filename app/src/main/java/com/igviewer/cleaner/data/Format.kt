@@ -11,6 +11,12 @@ fun humanBytes(bytes: Long): String = when {
 }
 
 /**
+ * A file count with thousands separators: 12909 -> "12,909". Device counts reach
+ * five digits, where a bare number is hard to compare at a glance.
+ */
+fun humanCount(count: Int): String = String.format(Locale.US, "%,d", count)
+
+/**
  * A path as the review list shows it: relative to the scan root when it is
  * inside it, so `/storage/emulated/0/DCIM/Camera/x.jpg` reads `DCIM/Camera/x.jpg`.
  */

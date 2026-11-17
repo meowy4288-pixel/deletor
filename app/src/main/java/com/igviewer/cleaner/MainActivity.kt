@@ -56,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -87,6 +88,7 @@ import com.igviewer.cleaner.data.MediaKind
 import com.igviewer.cleaner.data.StorageRoots
 import com.igviewer.cleaner.data.displayPath
 import com.igviewer.cleaner.data.humanBytes
+import com.igviewer.cleaner.data.humanCount
 import com.igviewer.cleaner.data.kindOf
 import com.igviewer.cleaner.data.sampleSizeFor
 import kotlinx.coroutines.Dispatchers
@@ -145,6 +147,14 @@ private class CleanerState {
     var found by mutableIntStateOf(0)
     var scanCancelled by mutableStateOf(false)
     var unreadableDirs by mutableIntStateOf(0)
+    // Diagnostics for the review screen: what the scan actually saw, and why the
+    // rest of it could not be matched. Kept as counts, never file paths.
+    var mediaSeen by mutableIntStateOf(0)
+    var mediaBytes by mutableLongStateOf(0L)
+    var sizeAbsentFiles by mutableIntStateOf(0)
+    var sizeAbsentBytes by mutableLongStateOf(0L)
+    var sizeOnlyFiles by mutableIntStateOf(0)
+    var sizeOnlyBytes by mutableLongStateOf(0L)
     var cancelFlag = AtomicBoolean(false)
 
     var candidates by mutableStateOf<List<DeviceCopy>>(emptyList())
@@ -285,6 +295,12 @@ private fun CleanerApp() {
             state.selected = emptySet()
             state.scanCancelled = result.cancelled
             state.unreadableDirs = result.unreadableDirs
+            state.mediaSeen = result.mediaSeen
+            state.mediaBytes = result.mediaBytes
+            state.sizeAbsentFiles = result.sizeAbsentFiles
+            state.sizeAbsentBytes = result.sizeAbsentBytes
+            state.sizeOnlyFiles = result.sizeOnlyFiles
+            state.sizeOnlyBytes = result.sizeOnlyBytes
             state.filesSeen = result.filesSeen
             state.found = result.copies.size
             state.phase = Phase.REVIEW
@@ -541,12 +557,12 @@ private fun ReadyPane(
                 Text(zipName, color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "${index.media.size} media files · ${humanBytes(index.totalBytes)}",
+                    "${humanCount(index.media.size)} media files · ${humanBytes(index.totalBytes)}",
                     color = Palette.Muted,
                     fontSize = 13.sp,
                 )
                 Text(
-                    "${index.sizes.size} distinct sizes to look for",
+                    "${humanCount(index.sizes.size)} distinct sizes to look for",
                     color = Palette.Muted,
                     fontSize = 13.sp,
                 )
@@ -661,18 +677,53 @@ private fun ReviewPane(
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            "${state.filesSeen} files checked${if (state.candidates.isEmpty()) "" else " · ${state.selected.size} ticked (${humanBytes(selectedBytes)})"}",
+            "${humanCount(state.filesSeen)} files checked${if (state.candidates.isEmpty()) "" else " · ${state.selected.size} ticked (${humanBytes(selectedBytes)})"}",
             color = Palette.Muted,
             fontSize = 12.sp,
         )
-        if (state.scanRoots.size > 1) {
-            Text(
-                "Scanned ${state.scanRoots.joinToString(" + ") { rootLabel(it) }}",
-                color = Palette.Muted,
-                fontSize = 12.sp,
-            )
+        Text(
+            "${humanCount(state.mediaSeen)} photos, videos or voice notes on this device (${humanBytes(state.mediaBytes)})",
+            color = Palette.Muted,
+            fontSize = 12.sp,
+        )
+        // Always named, not only when there are two: "internal storage only" is the
+        // difference between a short scan and a short archive, and it used to be
+        // invisible unless a card happened to be found.
+        Text(
+            "Scanned ${state.scanRoots.joinToString(" + ") { rootLabel(it) }}",
+            color = Palette.Muted,
+            fontSize = 12.sp,
+        )
+        if (state.sizeAbsentFiles > 0 || state.sizeOnlyFiles > 0) {
+            Spacer(Modifier.height(8.dp))
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Palette.Surface),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    if (state.sizeAbsentFiles > 0) {
+                        Text(
+                            "${humanCount(state.sizeAbsentFiles)} of those (${humanBytes(state.sizeAbsentBytes)}) " +
+                                "have a size the archive does not contain at all, so no exact copy of them is in this .zip.",
+                            color = Palette.Muted,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                        )
+                    }
+                    if (state.sizeOnlyFiles > 0) {
+                        Text(
+                            "${humanCount(state.sizeOnlyFiles)} (${humanBytes(state.sizeOnlyBytes)}) " +
+                                "share a size with an archive file but the bytes differ, so they are not the same file.",
+                            color = Palette.Muted,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                        )
+                    }
+                }
+            }
         }
         if (state.candidates.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
             Text(
                 "Tap a thumbnail to view it full screen; tap the row to tick it.",
                 color = Palette.Muted,
@@ -696,9 +747,23 @@ private fun ReviewPane(
         }
 
         if (state.candidates.isEmpty()) {
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
+            val explanation = when {
+                state.mediaSeen == 0 ->
+                    "The scan found no photos, videos or voice notes on this device. " +
+                        "Grant All files access, check that the SD card is mounted, then scan again."
+                state.sizeAbsentFiles == state.mediaSeen ->
+                    "Every media file the scan could see has a size this archive does not contain, " +
+                        "so none of their bytes are in the .zip. That usually means the export was " +
+                        "requested with only some chats or categories ticked."
+                state.sizeOnlyFiles > 0 ->
+                    "The files that share a size with the archive differ in content, so they are " +
+                        "re-compressed or otherwise different copies, not the same bytes."
+                else ->
+                    "No media file on this device is byte-identical to anything in the archive."
+            }
             Text(
-                "Every archive file either has no copy on this phone or only re-compressed ones.",
+                explanation,
                 color = Palette.Muted,
                 fontSize = 13.sp,
                 lineHeight = 19.sp,

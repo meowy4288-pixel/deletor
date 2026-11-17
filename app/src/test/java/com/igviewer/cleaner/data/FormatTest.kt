@@ -15,6 +15,14 @@ class FormatTest {
     }
 
     @Test
+    fun countsReadWithThousandsSeparators() {
+        assertEquals("0", humanCount(0))
+        assertEquals("999", humanCount(999))
+        assertEquals("12,909", humanCount(12_909))
+        assertEquals("1,234,567", humanCount(1_234_567))
+    }
+
+    @Test
     fun displayPathIsRelativeToTheScanRoot() {
         val root = java.io.File("/storage/emulated/0")
         assertEquals("DCIM/Camera/a.jpg", displayPath(root, "/storage/emulated/0/DCIM/Camera/a.jpg"))

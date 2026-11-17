@@ -108,6 +108,44 @@ class DeviceScanTest {
     }
 
     @Test
+    fun countsMediaWhoseSizeIsNowhereInTheArchive() {
+        // This is the diagnostic that separates "the archive does not hold these
+        // files" from "the bytes differ": a size the archive never contains cannot
+        // be hashed into a match, whatever the file is.
+        val root = root()
+        val wanted = photo(12)
+        write(root, "DCIM/Camera/copy.jpg", wanted)
+        write(root, "DCIM/Camera/stale.jpg", ByteArray(1234) { 1 })
+        write(root, "Download/notes.txt", ByteArray(4321) { 2 })
+        write(root, "Download/backup.zip", ByteArray(999) { 3 })
+
+        val result = DeviceScan.scan(root, indexFor(wanted))
+        assertEquals(1, result.copies.size)
+        // The zip is excluded before counting, and a .txt is not media.
+        assertEquals(2, result.mediaSeen)
+        assertEquals(wanted.size.toLong() + 1234L, result.mediaBytes)
+        assertEquals(1, result.sizeAbsentFiles)
+        assertEquals(1234L, result.sizeAbsentBytes)
+        assertEquals(0, result.sizeOnlyFiles)
+        assertEquals(0L, result.sizeOnlyBytes)
+    }
+
+    @Test
+    fun countsSameSizeDifferentBytesSeparatelyFromAbsentSizes() {
+        val root = root()
+        val wanted = photo(13)
+        write(root, "DCIM/Camera/decoy.jpg", ByteArray(wanted.size) { 0x55 })
+
+        val result = DeviceScan.scan(root, indexFor(wanted))
+        assertTrue(result.copies.isEmpty())
+        assertEquals(0, result.sizeAbsentFiles)
+        assertEquals(0L, result.sizeAbsentBytes)
+        assertEquals(1, result.sizeOnlyFiles)
+        assertEquals(wanted.size.toLong(), result.sizeOnlyBytes)
+        assertEquals(1, result.mediaSeen)
+    }
+
+    @Test
     fun anExtensionlessPhotoOnTheDeviceIsStillFound() {
         // Device files are never filtered by name: only size + hash decide. This pins
         // that a bare-timestamp copy is offered while an unrelated extensionless file
@@ -157,6 +195,7 @@ class DeviceScanTest {
         val wanted = photo(10)
         write(internal, "DCIM/Camera/a.jpg", wanted)
         write(sd, "Download/instagram-export/photos/b.jpg", wanted)
+        write(sd, "Download/instagram-export/photos/stale.jpg", ByteArray(777) { 9 })
 
         val result = DeviceScan.scanAll(listOf(internal, sd), indexFor(wanted))
         assertEquals(
@@ -170,7 +209,12 @@ class DeviceScanTest {
             setOf(internal.absolutePath, sd.absolutePath),
             result.copies.map { it.root }.toSet(),
         )
-        assertEquals(2, result.filesSeen)
+        assertEquals(3, result.filesSeen)
+        // The diagnostics are summed across volumes, not left at the last one.
+        assertEquals(3, result.mediaSeen)
+        assertEquals(wanted.size.toLong() * 2 + 777L, result.mediaBytes)
+        assertEquals(1, result.sizeAbsentFiles)
+        assertEquals(777L, result.sizeAbsentBytes)
     }
 
     @Test

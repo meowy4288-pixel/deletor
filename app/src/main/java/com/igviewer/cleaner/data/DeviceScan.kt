@@ -26,6 +26,24 @@ data class ScanResult(
     /** Directories that could not be listed (permissions, vanished media). */
     val unreadableDirs: Int,
     val cancelled: Boolean,
+    /**
+     * Media-named device files considered, and their total size. Archives, hidden
+     * files and empty files are excluded, so this is what the scan actually had a
+     * chance to match. Extensionless files are not counted here (nothing about
+     * their name says they are media) even though they are still hashed and matched.
+     */
+    val mediaSeen: Int = 0,
+    val mediaBytes: Long = 0L,
+    /**
+     * Media-named files whose exact byte size occurs nowhere in the archive. Their
+     * contents can never match, so they are never hashed: this is the count that
+     * separates "the archive is missing these files" from "the bytes differ".
+     */
+    val sizeAbsentFiles: Int = 0,
+    val sizeAbsentBytes: Long = 0L,
+    /** Media-named files whose size matched an archive entry but whose bytes did not. */
+    val sizeOnlyFiles: Int = 0,
+    val sizeOnlyBytes: Long = 0L,
 )
 
 /**
@@ -120,11 +138,28 @@ object DeviceScan {
         var filesSeen = 0
         var filesHashed = 0
         var unreadableDirs = 0
+        var mediaSeen = 0
+        var mediaBytes = 0L
+        var sizeAbsentFiles = 0
+        var sizeAbsentBytes = 0L
+        var sizeOnlyFiles = 0
+        var sizeOnlyBytes = 0L
         val pending = ArrayDeque<File>()
         pending.addLast(root)
 
-        fun finish(cancelled: Boolean) =
-            ScanResult(copies.toList(), filesSeen, filesHashed, unreadableDirs, cancelled)
+        fun finish(cancelled: Boolean) = ScanResult(
+            copies = copies.toList(),
+            filesSeen = filesSeen,
+            filesHashed = filesHashed,
+            unreadableDirs = unreadableDirs,
+            cancelled = cancelled,
+            mediaSeen = mediaSeen,
+            mediaBytes = mediaBytes,
+            sizeAbsentFiles = sizeAbsentFiles,
+            sizeAbsentBytes = sizeAbsentBytes,
+            sizeOnlyFiles = sizeOnlyFiles,
+            sizeOnlyBytes = sizeOnlyBytes,
+        )
 
         while (pending.isNotEmpty()) {
             if (isCancelled()) return finish(true)
@@ -145,12 +180,31 @@ object DeviceScan {
                 filesSeen++
                 if (shouldSkipFile(child)) continue
                 val size = child.length()
+                // Diagnostics count media-named files only: a .json or .txt of the
+                // same size is not something the user expects to be told about.
+                val mediaNamed = isMediaName(child.name)
+                if (mediaNamed) {
+                    mediaSeen++
+                    mediaBytes += size
+                }
                 // The prefilter: this one line is what makes a whole-device scan cheap.
-                if (!index.mayMatch(size)) continue
+                if (!index.mayMatch(size)) {
+                    if (mediaNamed) {
+                        sizeAbsentFiles++
+                        sizeAbsentBytes += size
+                    }
+                    continue
+                }
                 val hash = Hashing.sha256(child) ?: continue
                 filesHashed++
                 val matches = index.matches(size, hash)
-                if (matches.isEmpty()) continue
+                if (matches.isEmpty()) {
+                    if (mediaNamed) {
+                        sizeOnlyFiles++
+                        sizeOnlyBytes += size
+                    }
+                    continue
+                }
                 copies.add(
                     DeviceCopy(
                         path = child.absolutePath,
@@ -182,11 +236,29 @@ object DeviceScan {
         var filesSeen = 0
         var filesHashed = 0
         var unreadableDirs = 0
+        var mediaSeen = 0
+        var mediaBytes = 0L
+        var sizeAbsentFiles = 0
+        var sizeAbsentBytes = 0L
+        var sizeOnlyFiles = 0
+        var sizeOnlyBytes = 0L
+
+        fun finish(cancelled: Boolean) = ScanResult(
+            copies = copies.toList(),
+            filesSeen = filesSeen,
+            filesHashed = filesHashed,
+            unreadableDirs = unreadableDirs,
+            cancelled = cancelled,
+            mediaSeen = mediaSeen,
+            mediaBytes = mediaBytes,
+            sizeAbsentFiles = sizeAbsentFiles,
+            sizeAbsentBytes = sizeAbsentBytes,
+            sizeOnlyFiles = sizeOnlyFiles,
+            sizeOnlyBytes = sizeOnlyBytes,
+        )
 
         for (root in roots) {
-            if (isCancelled()) {
-                return ScanResult(copies.toList(), filesSeen, filesHashed, unreadableDirs, true)
-            }
+            if (isCancelled()) return finish(true)
             val seenBase = filesSeen
             val copiesBase = copies.size
             val result = scan(root, index, isCancelled) { rootSeen, rootFound ->
@@ -196,10 +268,14 @@ object DeviceScan {
             filesSeen += result.filesSeen
             filesHashed += result.filesHashed
             unreadableDirs += result.unreadableDirs
-            if (result.cancelled) {
-                return ScanResult(copies.toList(), filesSeen, filesHashed, unreadableDirs, true)
-            }
+            mediaSeen += result.mediaSeen
+            mediaBytes += result.mediaBytes
+            sizeAbsentFiles += result.sizeAbsentFiles
+            sizeAbsentBytes += result.sizeAbsentBytes
+            sizeOnlyFiles += result.sizeOnlyFiles
+            sizeOnlyBytes += result.sizeOnlyBytes
+            if (result.cancelled) return finish(true)
         }
-        return ScanResult(copies.toList(), filesSeen, filesHashed, unreadableDirs, false)
+        return finish(false)
     }
 }
