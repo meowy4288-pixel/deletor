@@ -4,6 +4,13 @@ A small, deliberately boring tool: point it at an Instagram export `.zip`, let i
 find files on this phone whose **contents are byte-for-byte identical** to media
 inside that archive, review the list, and delete the ones you tick.
 
+## Install
+
+Grab the APK from
+[Releases](https://github.com/meowy4288-pixel/deletor/releases) directly on the
+phone — no cable and no adb. The release notes walk through the sideload prompt
+and the one-time *All files access* grant the scan needs.
+
 It is a separate app from the IG viewer on purpose. The viewer is read-only;
 this one deletes. Keeping them apart means deleting power is never one wrong
 tap away from the browsing UI, and the viewer's permissions stay as narrow as
